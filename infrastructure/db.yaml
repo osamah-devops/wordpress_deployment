@@ -301,7 +301,7 @@ Resources:
       TreatMissingData: notBreaching
 
   # ==========================================
-  # SECRETS MANAGER ROTATION (Optional)
+  # SECRETS MANAGER ROTATION
   # ==========================================
   DBSecretRotationRole:
     Type: AWS::IAM::Role
