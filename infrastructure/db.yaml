@@ -82,12 +82,12 @@ Resources:
     Properties:
       GroupName: wordpress-db-sg
       GroupDescription: "Security group for WordPress RDS database - allows access from ECS containers"
-      VpcId: !ImportValue "VPCId"
+      VpcId: !ImportValue "${AWS::wordpress-networking}-vpc-id"
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
-          SourceSecurityGroupId: !Ref AllowedSecurityGroupId
+          SourceSecurityGroupId: !ImportValue "${AWS::wordpress-networking}-ecs-sg-id"
           Description: "MySQL from ECS containers"
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -108,8 +108,8 @@ Resources:
       DBSubnetGroupName: wordpress-db-subnet-group
       DBSubnetGroupDescription: "Subnet group for WordPress RDS in multiple AZs"
       SubnetIds:
-        - !Ref PrivateSubnet1Id
-        - !Ref PrivateSubnet2Id
+        - !ImportValue "${AWS::wordpress-networking}-private-subnet-1-id"
+        - !ImportValue "${AWS::wordpress-networking}-private-subnet-2-id"
       Tags:
         - Key: Name
           Value: wordpress-db-subnet-group
