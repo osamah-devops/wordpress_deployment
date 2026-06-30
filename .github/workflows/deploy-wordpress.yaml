@@ -1,0 +1,298 @@
+name: Deploy WordPress to AWS ECS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - 'nginx.conf'
+      - 'php.ini'
+      - 'uploads.ini'
+      - 'wp-config.php'
+      - 'wp-content/**'
+      - '.github/workflows/deploy-wordpress.yaml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ROLE_TO_ASSUME: arn:aws:iam::123456789012:role/github-actions-ecs-deploy
+  ECR_REPOSITORY: wordpress-nginx
+  ECS_CLUSTER: wordpress-cluster
+  ECS_SERVICE: wordpress-service
+  CONTAINER_NAME: wordpress
+  STACK_PREFIX: wordpress
+
+jobs:
+  # ==========================================
+  # CHECK INFRASTRUCTURE - Verify stack exists
+  # ==========================================
+  check-infrastructure:
+    name: Verify Infrastructure Status
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Check Infrastructure Stacks
+      run: |
+        echo "Checking infrastructure stacks..."
+        
+        # Check if all required stacks exist and are in CREATE_COMPLETE or UPDATE_COMPLETE state
+        for stack in secrets networking ecs; do
+          STACK_NAME="${{ env.STACK_PREFIX }}-$stack"
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+          
+          echo "Stack $STACK_NAME status: $STATUS"
+          
+          if [[ ! "$STATUS" =~ "COMPLETE" ]]; then
+            echo "ERROR: Infrastructure stack $STACK_NAME is not ready"
+            exit 1
+          fi
+        done
+        
+        echo "All infrastructure stacks are ready!"
+
+    - name: Export Infrastructure Outputs
+      id: infra
+      run: |
+        # Export key infrastructure values for use in deployment steps
+        ECS_CLUSTER_NAME=$(aws cloudformation describe-stack-resource \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --logical-resource-id ECSCluster \
+          --query 'StackResourceDetail.PhysicalResourceId' \
+          --output text)
+        
+        echo "ecs-cluster=$ECS_CLUSTER_NAME" >> $GITHUB_OUTPUT
+
+  # ==========================================
+  # BUILD AND PUSH IMAGE - Docker image to ECR
+  # ==========================================
+  build-and-push:
+    name: Build and Push WordPress Image
+    needs: check-infrastructure
+    runs-on: ubuntu-latest
+    
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Log in to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Create ECR Repository if needed
+      run: |
+        aws ecr describe-repositories \
+          --repository-names ${{ env.ECR_REPOSITORY }} \
+          --region ${{ env.AWS_REGION }} 2>/dev/null || \
+        aws ecr create-repository \
+          --repository-name ${{ env.ECR_REPOSITORY }} \
+          --region ${{ env.AWS_REGION }}
+
+    - name: Build, Tag, and Push Image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+    - name: Image Summary
+      run: |
+        echo "=== ECR Image Details ==="
+        echo "Repository: ${{ env.ECR_REPOSITORY }}"
+        echo "Image: ${{ steps.build-image.outputs.image }}"
+        echo "Tag: ${{ github.sha }}"
+
+  # ==========================================
+  # UPDATE TASK DEFINITION - Update ECS task def
+  # ==========================================
+  update-task-definition:
+    name: Update ECS Task Definition
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    
+    outputs:
+      task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+    
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Download Current Task Definition
+      run: |
+        aws ecs describe-task-definition \
+          --task-definition ${{ env.CONTAINER_NAME }} \
+          --query taskDefinition > task-definition.json
+        
+        echo "=== Current Task Definition ==="
+        cat task-definition.json
+
+    - name: Fill in New Image and Secrets in Task Definition
+      id: render-task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: task-definition.json
+        container-name: ${{ env.CONTAINER_NAME }}
+        image: ${{ needs.build-and-push.outputs.image }}
+        secrets: |
+          WORDPRESS_DATABASE_PASSWORD=arn:aws:secretsmanager:${{ env.AWS_REGION }}:123456789012:secret:wordpress-db-password:SecretString::
+          WORDPRESS_DATABASE_USER=arn:aws:secretsmanager:${{ env.AWS_REGION }}:123456789012:secret:wordpress-db-user:SecretString::
+
+    - name: Upload Updated Task Definition
+      uses: actions/upload-artifact@v4
+      with:
+        name: task-definition
+        path: ${{ steps.render-task-def.outputs.task-definition }}
+
+  # ==========================================
+  # DEPLOY TO ECS - Deploy updated service
+  # ==========================================
+  deploy-to-ecs:
+    name: Deploy WordPress to ECS
+    needs: [check-infrastructure, update-task-definition]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Download Task Definition Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: task-definition
+
+    - name: Deploy Amazon ECS Task Definition
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+      with:
+        task-definition: task-definition.json
+        service: ${{ env.ECS_SERVICE }}
+        cluster: ${{ env.ECS_CLUSTER }}
+        wait-for-service-stability: true
+
+    - name: Deployment Summary
+      run: |
+        echo "=== WordPress Deployment Summary ==="
+        echo "Cluster: ${{ env.ECS_CLUSTER }}"
+        echo "Service: ${{ env.ECS_SERVICE }}"
+        echo "Image: ${{ needs.build-and-push.outputs.image }}"
+        
+        # Get service details
+        aws ecs describe-services \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --services ${{ env.ECS_SERVICE }} \
+          --query 'services[0].[serviceName,status,runningCount,desiredCount]' \
+          --output table
+
+  # ==========================================
+  # POST-DEPLOYMENT VALIDATION
+  # ==========================================
+  validate-deployment:
+    name: Validate WordPress Deployment
+    needs: deploy-to-ecs
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Check Task Status
+      run: |
+        # Get the latest task definition
+        TASK_DEFINITION=$(aws ecs describe-services \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --services ${{ env.ECS_SERVICE }} \
+          --query 'services[0].taskDefinition' \
+          --output text)
+        
+        echo "Checking tasks for: $TASK_DEFINITION"
+        
+        # List running tasks
+        aws ecs list-tasks \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --service-name ${{ env.ECS_SERVICE }} \
+          --desired-status RUNNING \
+          --query 'taskArns' \
+          --output json
+
+    - name: Verify Service Health
+      run: |
+        SERVICE_STATUS=$(aws ecs describe-services \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --services ${{ env.ECS_SERVICE }} \
+          --query 'services[0]' \
+          --output json)
+        
+        echo "Service Status:"
+        echo "$SERVICE_STATUS" | jq '{
+          serviceName: .serviceName,
+          status: .status,
+          desiredCount: .desiredCount,
+          runningCount: .runningCount,
+          pendingCount: .pendingCount,
+          deployments: [.deployments[] | {id: .id, status: .status, runningCount: .runningCount, desiredCount: .desiredCount}]
+        }'
+
+    - name: Check ALB Target Health
+      run: |
+        # Get target group ARN from ECS service
+        TARGET_GROUP_ARN=$(aws ecs describe-services \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --services ${{ env.ECS_SERVICE }} \
+          --query 'services[0].loadBalancers[0].targetGroupArn' \
+          --output text)
+        
+        if [ "$TARGET_GROUP_ARN" != "None" ] && [ ! -z "$TARGET_GROUP_ARN" ]; then
+          echo "Checking target health: $TARGET_GROUP_ARN"
+          aws elbv2 describe-target-health \
+            --target-group-arn "$TARGET_GROUP_ARN" \
+            --query 'TargetHealthDescriptions[*].[Target.Id,TargetHealth.State,TargetHealth.Description]' \
+            --output table
+        fi
+
+    - name: Deployment Success Notification
+      run: |
+        echo "✓ WordPress deployment completed successfully!"
+        echo "Service: ${{ env.ECS_SERVICE }}"
+        echo "Cluster: ${{ env.ECS_CLUSTER }}"
+        echo "Region: ${{ env.AWS_REGION }}"

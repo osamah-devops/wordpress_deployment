@@ -1,0 +1,541 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Complete high-availability infrastructure for running a secure, production-ready Bitnami WordPress container on AWS ECS."
+
+# ==========================================
+# PARAMETERS SECTION
+# ==========================================
+Parameters:
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: "The Route 53 Hosted Zone ID for your domain (e.g., Z0123456789ABC)"
+  DomainName:
+    Type: String
+    Description: "The primary domain name for your WordPress site (e.g., example.com or wp.example.com)"
+
+Resources:
+  # ==========================================
+  # NETWORK INFRASTRUCTURE (VPC & SUBNETS)
+  # ==========================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: wordpress-vpc
+
+  # AVAILABILITY ZONE 1 (Index 0)
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: wordpress-public-subnet-1
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: wordpress-private-subnet-1
+
+  # AVAILABILITY ZONE 2 (Index 1)
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: wordpress-public-subnet-2
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.22.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: wordpress-private-subnet-2
+
+  # ==========================================
+  # INTERNET GATEWAY & ROUTING
+  # ==========================================
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: wordpress-igw
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: wordpress-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ==========================================
+  # HIGH AVAILABILITY NAT GATEWAYS
+  # ==========================================
+  # AZ1 NAT Gateway Infrastructure
+  NatEip1:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: wordpress-nat-gw-1
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: wordpress-private-rt-1
+
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  # AZ2 NAT Gateway Infrastructure
+  NatEip2:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: wordpress-nat-gw-2
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: wordpress-private-rt-2
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+  # ==========================================
+  # SECURITY GROUPS
+  # ==========================================
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow public HTTP/HTTPS traffic to the ALB"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: wordpress-alb-sg
+
+  EcsContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Isolate container ingress strictly to the ALB"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: wordpress-container-sg
+
+  # ==========================================
+  # APPLICATION LOAD BALANCER & TARGET GROUPS
+  # ==========================================
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: wordpress-alb
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: wordpress-alb
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: wordpress-tg
+      VpcId: !Ref VPC
+      Protocol: HTTP
+      Port: 8080
+      TargetType: ip
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: "8080"
+      HealthCheckPath: /wp-login.php
+      IntervalSeconds: 30
+      TimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Tags:
+        - Key: Name
+          Value: wordpress-alb-tg
+
+  # ==========================================
+  # ALB LISTENERS (WITH FORCE HTTPS REDIRECT)
+  # ==========================================
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: HTTP_301
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      Certificates:
+        - CertificateArn: !Ref SslCertificate
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  # ==========================================
+  # CERTIFICATES & DNS ROUTING
+  # ==========================================
+  SslCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      Tags:
+        - Key: Name
+          Value: wordpress-ssl-cert
+
+  WordpressDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        HostedZoneId: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneId
+        DNSName: !GetAtt ApplicationLoadBalancer.DNSName
+        EvaluateTargetHealth: true
+
+  # ==========================================
+  # RUNTIME SECRETS MANAGEMENT
+  # ==========================================
+  WordPressSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: production/wordpress/config
+      Description: "Secure configuration and credentials for the WordPress ECS task"
+      SecretString: !Sub |
+        {
+          "WORDPRESS_DATABASE_NAME": "bitnami_wordpress",
+          "WORDPRESS_DATABASE_USER": "bn_wordpress",
+          "WORDPRESS_DATABASE_PASSWORD": "${AWS::AccountId}-SecureDBPass-2026",
+          "WORDPRESS_TABLE_PREFIX": "wp_",
+          "WORDPRESS_AUTH_KEY": "generate-a-secure-random-string-here",
+          "WORDPRESS_SECURE_AUTH_KEY": "generate-a-secure-random-string-here",
+          "WORDPRESS_LOGGED_IN_KEY": "generate-a-secure-random-string-here",
+          "WORDPRESS_NONCE_KEY": "generate-a-secure-random-string-here",
+          "WORDPRESS_AUTH_SALT": "generate-a-secure-random-string-here",
+          "WORDPRESS_SECURE_AUTH_SALT": "generate-a-secure-random-string-here",
+          "WORDPRESS_LOGGED_IN_SALT": "generate-a-secure-random-string-here",
+          "WORDPRESS_NONCE_SALT": "generate-a-secure-random-string-here"
+        }
+
+  # ==========================================
+  # IAM ACCESS ROLES
+  # ==========================================
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wordpress-ecs-execution-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: WordPressSecretsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref WordPressSecret
+
+  EcsTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: wordpress-ecs-task-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: WordPressAppPermissions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: "arn:aws:s3:::*"
+    # ==========================================
+  # ECS CLUSTER
+  # ==========================================
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: wordpress-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  # ==========================================
+  # CLOUDWATCH LOG GROUP (For Application Logs)
+  # ==========================================
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/wordpress-nginx
+      RetentionInDays: 30
+
+  # ==========================================
+  # ECS TASK DEFINITION
+  # ==========================================
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: wordpress
+      Cpu: "512"       # 0.5 vCPU
+      Memory: "1024"   # 1 GB RAM
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt EcsTaskRole.Arn
+      ContainerDefinitions:
+        - Name: wordpress
+          # Replace with your actual ECR image path once pushed by your CI/CD pipeline
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/wordpress-nginx:latest"
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CloudWatchLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: wordpress
+          # Mapping individual JSON parameters out of our centralized Secrets Manager object
+          Secrets:
+            - Name: WORDPRESS_DATABASE_NAME
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_DATABASE_NAME::"
+            - Name: WORDPRESS_DATABASE_USER
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_DATABASE_USER::"
+            - Name: WORDPRESS_DATABASE_PASSWORD
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_DATABASE_PASSWORD::"
+            - Name: WORDPRESS_TABLE_PREFIX
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_TABLE_PREFIX::"
+            - Name: WORDPRESS_AUTH_KEY
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_AUTH_KEY::"
+            - Name: WORDPRESS_SECURE_AUTH_KEY
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_SECURE_AUTH_KEY::"
+            - Name: WORDPRESS_LOGGED_IN_KEY
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_LOGGED_IN_KEY::"
+            - Name: WORDPRESS_NONCE_KEY
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_NONCE_KEY::"
+            - Name: WORDPRESS_AUTH_SALT
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_AUTH_SALT::"
+            - Name: WORDPRESS_SECURE_AUTH_SALT
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_SECURE_AUTH_SALT::"
+            - Name: WORDPRESS_LOGGED_IN_SALT
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_LOGGED_IN_SALT::"
+            - Name: WORDPRESS_NONCE_SALT
+              ValueFrom: !Sub "${WordPressSecret}:WORDPRESS_NONCE_SALT::"
+
+  # ==========================================
+  # ECS FARGATE SERVICE
+  # ==========================================
+  FargateService:
+    Type: AWS::ECS::Service
+    DependsOn: HttpsListener # Ensures the ALB routing rules exist before tasks launch
+    Properties:
+      ServiceName: wordpress-service
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: 2 # Launches 2 containers distributed across your private subnets
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED # Enabled so Fargate can fetch ECR images, traffic is still secured via the NAT GW / SG rules
+          SecurityGroups:
+            - !Ref EcsContainerSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+      LoadBalancers:
+        - ContainerName: wordpress
+          ContainerPort: 8080
+          TargetGroupArn: !Ref AlbTargetGroup
+
+# ==========================================
+# OUTPUTS SECTION
+# ==========================================
+Outputs:
+  VpcId:
+    Description: "The ID of the generated VPC"
+    Value: !Ref VPC
+  AlbDnsName:
+    Description: "The direct DNS Canonical Endpoint of your Application Load Balancer"
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  SecurityGroupId:
+    Description: "Use this Security Group ID on your ECS Fargate Service Definition"
+    Value: !Ref EcsContainerSecurityGroup
+  TargetGroupArn:
+    Description: "Pass this Target Group ARN into your ECS Fargate Service loadBalancers configuration block"
+    Value: !Ref AlbTargetGroup
+  EcsClusterName:
+    Description: "The name of the ECS Cluster created for WordPress"
+    Value: !Ref EcsCluster
+
+  PrivateSubnet1:
+    Description: "First private subnet for database and ECS tasks"
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-private-subnet-1"
+
+  PrivateSubnet2:
+    Description: "Second private subnet for database and ECS tasks"
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-private-subnet-2"
+
+  PublicSubnet1:
+    Description: "First public subnet for NAT Gateway and ALB"
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-public-subnet-1"
+
+  PublicSubnet2:
+    Description: "Second public subnet for NAT Gateway and ALB"
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-public-subnet-2"

@@ -1,0 +1,391 @@
+name: Deploy Infrastructure to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/**'
+      - '.github/workflows/deploy-infrastructure.yaml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ROLE_TO_ASSUME: arn:aws:iam::123456789012:role/github-actions-infra-deploy
+  STACK_PREFIX: wordpress
+
+jobs:
+  # ==========================================
+  # VALIDATION JOB - Template syntax check
+  # ==========================================
+  validate:
+    name: Validate CloudFormation Templates
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Validate Networking Template
+      run: |
+        aws cloudformation validate-template \
+          --template-body file://infrastructure/networking.yaml
+
+    - name: Validate Secrets Template
+      run: |
+        aws cloudformation validate-template \
+          --template-body file://infrastructure/secrets.yaml
+
+    - name: Validate Database Template
+      run: |
+        aws cloudformation validate-template \
+          --template-body file://infrastructure/db.yaml
+
+    - name: Validate ECS Template
+      run: |
+        aws cloudformation validate-template \
+          --template-body file://infrastructure/ecs.yaml
+
+  # ==========================================
+  # DEPLOY SECRETS - Must be first
+  # ==========================================
+  deploy-secrets:
+    name: Deploy Secrets Management
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      secrets-stack-id: ${{ steps.deploy.outputs.stack-id }}
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Deploy Secrets Stack
+      id: deploy
+      run: |
+        aws cloudformation deploy \
+          --template-file infrastructure/secrets.yaml \
+          --stack-name ${{ env.STACK_PREFIX }}-secrets \
+          --region ${{ env.AWS_REGION }} \
+          --no-fail-on-empty-changeset \
+          --capabilities CAPABILITY_NAMED_IAM
+        
+        STACK_ID=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-secrets \
+          --query 'Stacks[0].StackId' \
+          --output text)
+        echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
+
+    - name: Wait for Secrets Stack
+      run: |
+        aws cloudformation wait stack-create-complete \
+          --stack-name ${{ env.STACK_PREFIX }}-secrets \
+          --region ${{ env.AWS_REGION }} || true
+        
+        aws cloudformation wait stack-update-complete \
+          --stack-name ${{ env.STACK_PREFIX }}-secrets \
+          --region ${{ env.AWS_REGION }} || true
+
+  # ==========================================
+  # DEPLOY NETWORKING
+  # ==========================================
+  deploy-networking:
+    name: Deploy VPC and Networking
+    needs: deploy-secrets
+    runs-on: ubuntu-latest
+    outputs:
+      networking-stack-id: ${{ steps.deploy.outputs.stack-id }}
+      vpc-id: ${{ steps.exports.outputs.vpc-id }}
+      private-subnet-1: ${{ steps.exports.outputs.private-subnet-1 }}
+      private-subnet-2: ${{ steps.exports.outputs.private-subnet-2 }}
+      ecs-security-group: ${{ steps.exports.outputs.ecs-security-group }}
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Deploy Networking Stack
+      id: deploy
+      run: |
+        aws cloudformation deploy \
+          --template-file infrastructure/networking.yaml \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --region ${{ env.AWS_REGION }} \
+          --no-fail-on-empty-changeset \
+          --capabilities CAPABILITY_NAMED_IAM
+        
+        STACK_ID=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --query 'Stacks[0].StackId' \
+          --output text)
+        echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
+
+    - name: Wait for Networking Stack
+      run: |
+        aws cloudformation wait stack-create-complete \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --region ${{ env.AWS_REGION }} || true
+        
+        aws cloudformation wait stack-update-complete \
+      id: exports
+      run: |
+        aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --query 'Stacks[0].Outputs' \
+          --output table
+        
+        VPC_ID=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --query 'Stacks[0].Outputs[?OutputKey==`VpcId`].OutputValue' \
+          --output text)
+        echo "vpc-id=$VPC_ID" >> $GITHUB_OUTPUT
+        
+        PRIVATE_SUBNET_1=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet1`].OutputValue' \
+          --output text)
+        echo "private-subnet-1=$PRIVATE_SUBNET_1" >> $GITHUB_OUTPUT
+        
+        PRIVATE_SUBNET_2=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet2`].OutputValue' \
+          --output text)
+        echo "private-subnet-2=$PRIVATE_SUBNET_2" >> $GITHUB_OUTPUT
+        
+        ECS_SG=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --query 'Stacks[0].Outputs[?OutputKey==`SecurityGroupId`].OutputValue' \
+          --output text)
+        echo "ecs-security-group=$ECS_SG" >> $GITHUB_OUTPUT
+
+  # ==========================================
+  # DEPLOY DATABASE
+  # ==========================================
+  deploy-database:
+    name: Deploy RDS MySQL Database
+    needs: deploy-networking
+    runs-on: ubuntu-latest
+    outputs:
+      database-stack-id: ${{ steps.deploy.outputs.stack-id }}
+      db-endpoint: ${{ steps.exports.outputs.db-endpoint }}
+      db-security-group: ${{ steps.exports.outputs.db-security-group }}
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Deploy Database Stack
+      id: deploy
+      run: |
+        aws cloudformation deploy \
+          --template-file infrastructure/db.yaml \
+          --stack-name ${{ env.STACK_PREFIX }}-db \
+          --region ${{ env.AWS_REGION }} \
+          --no-fail-on-empty-changeset \
+          --capabilities CAPABILITY_NAMED_IAM \
+          --parameter-overrides \
+            VpcId=${{ needs.deploy-networking.outputs.vpc-id }} \
+            PrivateSubnet1Id=${{ needs.deploy-networking.outputs.private-subnet-1 }} \
+            PrivateSubnet2Id=${{ needs.deploy-networking.outputs.private-subnet-2 }} \
+            AllowedSecurityGroupId=${{ needs.deploy-networking.outputs.ecs-security-group }}
+        
+        STACK_ID=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-db \
+          --query 'Stacks[0].StackId' \
+          --output text)
+        echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
+
+    - name: Wait for Database Stack
+      run: |
+        aws cloudformation wait stack-create-complete \
+          --stack-name ${{ env.STACK_PREFIX }}-db \
+          --region ${{ env.AWS_REGION }} || true
+        
+        aws cloudformation wait stack-update-complete \
+          --stack-name ${{ env.STACK_PREFIX }}-db \
+          --region ${{ env.AWS_REGION }} || true
+
+    - name: Output Database Stack Exports
+      id: exports
+      run: |
+        aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-db \
+          --query 'Stacks[0].Outputs' \
+          --output table
+        
+        DB_ENDPOINT=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-db \
+          --query 'Stacks[0].Outputs[?OutputKey==`DBInstanceEndpoint`].OutputValue' \
+          --output text)
+        echo "db-endpoint=$DB_ENDPOINT" >> $GITHUB_OUTPUT
+        
+        DB_SG=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-db \
+          --query 'Stacks[0].Outputs[?OutputKey==`DBSecurityGroupId`].OutputValue' \
+          --output text)
+        echo "db-security-group=$DB_SG" >> $GITHUB_OUTPUT
+
+  # ==========================================
+  # DEPLOY ECS INFRASTRUCTURE
+  # ==========================================
+  deploy-ecs:
+    name: Deploy ECS Cluster and Services
+    needs: [deploy-networking, deploy-database]
+    runs-on: ubuntu-latest
+    outputs:
+      ecs-stack-id: ${{ steps.deploy.outputs.stack-id }}
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Get IAM Role ARNs
+      id: roles
+      run: |
+        EXEC_ROLE=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-secrets \
+          --query 'Stacks[0].Outputs[?OutputKey==`ECSTaskExecutionRoleArn`].OutputValue' \
+          --output text)
+        echo "execution-role=$EXEC_ROLE" >> $GITHUB_OUTPUT
+        
+        TASK_ROLE=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-secrets \
+          --query 'Stacks[0].Outputs[?OutputKey==`ECSTaskRoleArn`].OutputValue' \
+          --output text)
+        echo "task-role=$TASK_ROLE" >> $GITHUB_OUTPUT
+
+    - name: Deploy ECS Stack
+      id: deploy
+      run: |
+        aws cloudformation deploy \
+          --template-file infrastructure/ecs.yaml \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --region ${{ env.AWS_REGION }} \
+          --no-fail-on-empty-changeset \
+          --capabilities CAPABILITY_NAMED_IAM \
+          --parameter-overrides \
+            VpcId=${{ needs.deploy-networking.outputs.vpc-id }} \
+            SubnetIds="${{ needs.deploy-networking.outputs.private-subnet-1 }},${{ needs.deploy-networking.outputs.private-subnet-2 }}" \
+            SecurityGroupId=${{ needs.deploy-networking.outputs.ecs-security-group }} \
+            TaskExecutionRoleArn=${{ steps.roles.outputs.execution-role }} \
+            TaskRoleArn=${{ steps.roles.outputs.task-role }} \
+            DatabaseEndpoint=${{ needs.deploy-database.outputs.db-endpoint }} \
+            DatabaseSecurityGroupId=${{ needs.deploy-database.outputs.db-security-group }}
+        
+        STACK_ID=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --query 'Stacks[0].StackId' \
+          --output text)
+        echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
+
+    - name: Wait for ECS Stack
+      run: |
+        aws cloudformation wait stack-create-complete \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --region ${{ env.AWS_REGION }} || true
+        
+        aws cloudformation wait stack-update-complete \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --region ${{ env.AWS_REGION }} || true
+
+    - name: Output ECS Stack Exports
+      run: |
+        aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --query 'Stacks[0].Outputs' \
+          --output table
+
+  # ==========================================
+  # POST-DEPLOYMENT VALIDATION
+  # ==========================================
+  validate-deployment:
+    name: Validate Infrastructure Deployment
+    needs: deploy-ecs
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        audience: sts.amazonaws.com
+
+    - name: Check ECS Cluster Status
+      run: |
+        CLUSTER_NAME=$(aws cloudformation describe-stack-resource \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --logical-resource-id ECSCluster \
+          --query 'StackResourceDetail.PhysicalResourceId' \
+          --output text)
+        
+        echo "Checking cluster: $CLUSTER_NAME"
+        aws ecs describe-clusters --clusters $CLUSTER_NAME
+
+    - name: Check ALB Status
+      run: |
+        ALB_ARN=$(aws cloudformation describe-stack-resource \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --logical-resource-id ApplicationLoadBalancer \
+          --query 'StackResourceDetail.PhysicalResourceId' \
+          --output text)
+        
+        echo "Checking ALB: $ALB_ARN"
+        aws elbv2 describe-load-balancers --load-balancer-arns $ALB_ARN || true
+
+    - name: Check VPC Status
+      run: |
+        VPC_ID=$(aws cloudformation describe-stack-resource \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --logical-resource-id VPC \
+          --query 'StackResourceDetail.PhysicalResourceId' \
+          --output text)
+        
+        echo "Checking VPC: $VPC_ID"
+        aws ec2 describe-vpcs --vpc-ids $VPC_ID
+
+    - name: Deployment Summary
+      run: |
+        echo "=== Infrastructure Deployment Summary ==="
+        aws cloudformation describe-stacks \
+          --query 'Stacks[?starts_with(StackName, `${{ env.STACK_PREFIX }}`)].[StackName,StackStatus,CreationTime]' \
+          --output table

@@ -1,0 +1,380 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "RDS MySQL Database for WordPress deployment with high availability and automated backups"
+
+Parameters:
+  DBMasterUsername:
+    Type: String
+    Default: marmil
+    Description: Master username for the database
+    NoEcho: true
+  
+  DBMasterPassword:
+    Type: String
+    Description: Master password for the database
+    NoEcho: true
+    MinLength: 8
+  
+  DBName:
+    Type: String
+    Default: wordpress
+    Description: Name of the WordPress database
+  
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID for the RDS instance
+  
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: First private subnet for DB subnet group
+  
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second private subnet for DB subnet group
+  
+  AllowedSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group of ECS containers that can access the database
+  
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: Database instance class
+    AllowedValues:
+      - db.t3.micro      # 1 vCPU, 1 GB RAM - free tier
+      - db.t3.small      # 1 vCPU, 2 GB RAM
+      - db.t3.medium     # 2 vCPU, 4 GB RAM
+      - db.t4g.micro     # 2 vCPU, 1 GB RAM (ARM-based, cheaper)
+      - db.t4g.small     # 2 vCPU, 2 GB RAM (ARM-based)
+  
+  AllocatedStorage:
+    Type: Number
+    Default: 20
+    Description: Allocated storage in GB
+    MinValue: 20
+    MaxValue: 65536
+  
+  BackupRetentionPeriod:
+    Type: Number
+    Default: 7
+    Description: Number of days to retain backups
+    MinValue: 1
+    MaxValue: 35
+  
+  PreferredBackupWindow:
+    Type: String
+    Default: "03:00-04:00"
+    Description: Preferred backup window (UTC)
+  
+  PreferredMaintenanceWindow:
+    Type: String
+    Default: "sun:04:00-sun:05:00"
+    Description: Preferred maintenance window (UTC)
+
+Conditions:
+  IsProduction: !Equals [!Ref "AWS::StackName", "wordpress-db"]
+
+Resources:
+  # ==========================================
+  # RDS DATABASE SECURITY GROUP
+  # ==========================================
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: wordpress-db-sg
+      GroupDescription: "Security group for WordPress RDS database - allows access from ECS containers"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref AllowedSecurityGroupId
+          Description: "MySQL from ECS containers"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: "Allow all outbound traffic"
+      Tags:
+        - Key: Name
+          Value: wordpress-db-sg
+        - Key: Environment
+          Value: production
+
+  # ==========================================
+  # DB SUBNET GROUP (Multi-AZ)
+  # ==========================================
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: wordpress-db-subnet-group
+      DBSubnetGroupDescription: "Subnet group for WordPress RDS in multiple AZs"
+      SubnetIds:
+        - !Ref PrivateSubnet1Id
+        - !Ref PrivateSubnet2Id
+      Tags:
+        - Key: Name
+          Value: wordpress-db-subnet-group
+        - Key: Environment
+          Value: production
+
+  # ==========================================
+  # RDS MYSQL INSTANCE
+  # ==========================================
+  WordPressDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      # Basic Configuration
+      DBInstanceIdentifier: wordpress-db
+      Engine: mysql
+      EngineVersion: "8.0.35"
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref AllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      
+      # Database Credentials
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      DBName: !Ref DBName
+      
+      # Networking
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !GetAtt DBSecurityGroup.GroupId
+      PubliclyAccessible: false
+      
+      # High Availability
+      MultiAZ: true
+      
+      # Backup & Maintenance
+      BackupRetentionPeriod: !Ref BackupRetentionPeriod
+      PreferredBackupWindow: !Ref PreferredBackupWindow
+      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
+      CopyTagsToSnapshot: true
+      
+      # Performance & Monitoring
+      EnableCloudwatchLogsExports:
+        - error
+        - general
+        - slowquery
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      
+      # Automation
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: true
+      EnableIAMDatabaseAuthentication: false
+      EnableDeletionProtection: true
+      
+      Tags:
+        - Key: Name
+          Value: wordpress-database
+        - Key: Environment
+          Value: production
+
+  # ==========================================
+  # RDS MONITORING ROLE
+  # ==========================================
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+      Tags:
+        - Key: Name
+          Value: rds-monitoring-role
+        - Key: Environment
+          Value: production
+
+  # ==========================================
+  # DB PARAMETER GROUP (MySQL 8.0 Optimizations)
+  # ==========================================
+  WordPressDBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      DBParameterGroupName: wordpress-mysql80-params
+      Description: "Optimized MySQL 8.0 parameters for WordPress"
+      Family: mysql8.0
+      Parameters:
+        # WordPress Performance Tuning
+        max_connections: 100
+        innodb_buffer_pool_size: "{DBInstanceClassMemory*3/4}"
+        innodb_log_file_size: 512M
+        slow_query_log: 1
+        long_query_time: 2
+        log_bin_trust_function_creators: 1
+        character_set_server: utf8mb4
+        collation_server: utf8mb4_unicode_ci
+        
+        # Replication & Binary Logging
+        binlog_format: ROW
+        binlog_retention_hours: 24
+        
+        # Query Cache (disabled in MySQL 8.0, but set for compatibility)
+        query_cache_type: 0
+        
+        # Connection Timeout
+        interactive_timeout: 300
+        wait_timeout: 300
+      Tags:
+        - Key: Name
+          Value: wordpress-db-params
+        - Key: Environment
+          Value: production
+
+  # ==========================================
+  # DB OPTION GROUP
+  # ==========================================
+  WordPressDBOptionGroup:
+    Type: AWS::RDS::OptionGroup
+    Properties:
+      OptionGroupName: wordpress-mysql80-options
+      OptionGroupDescription: "Option group for WordPress MySQL 8.0"
+      EngineName: mysql
+      MajorEngineVersion: "8.0"
+      Tags:
+        - Key: Name
+          Value: wordpress-db-options
+        - Key: Environment
+          Value: production
+
+  # ==========================================
+  # CLOUDWATCH ALARMS
+  # ==========================================
+  DBHighCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: wordpress-db-high-cpu
+      AlarmDescription: "Alert when RDS CPU usage is high"
+      MetricName: CPUUtilization
+      Namespace: AWS/RDS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref WordPressDatabase
+      TreatMissingData: notBreaching
+
+  DBLowStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: wordpress-db-low-storage
+      AlarmDescription: "Alert when RDS free storage is low"
+      MetricName: FreeStorageSpace
+      Namespace: AWS/RDS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 2147483648  # 2 GB in bytes
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref WordPressDatabase
+      TreatMissingData: notBreaching
+
+  DBConnectionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: wordpress-db-high-connections
+      AlarmDescription: "Alert when database connections are high"
+      MetricName: DatabaseConnections
+      Namespace: AWS/RDS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref WordPressDatabase
+      TreatMissingData: notBreaching
+
+  # ==========================================
+  # SECRETS MANAGER ROTATION (Optional)
+  # ==========================================
+  DBSecretRotationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: secretsmanager.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RDSAccessForRotation
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds-db:connect
+                Resource: !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:${WordPressDatabase}"
+
+Outputs:
+  DBInstanceEndpoint:
+    Description: "RDS Database endpoint address"
+    Value: !GetAtt WordPressDatabase.Endpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}-endpoint"
+
+  DBInstancePort:
+    Description: "RDS Database port"
+    Value: !GetAtt WordPressDatabase.Endpoint.Port
+    Export:
+      Name: !Sub "${AWS::StackName}-port"
+
+  DBName:
+    Description: "WordPress database name"
+    Value: !Ref DBName
+    Export:
+      Name: !Sub "${AWS::StackName}-db-name"
+
+  DBMasterUsername:
+    Description: "Database master username"
+    Value: !Ref DBMasterUsername
+    Export:
+      Name: !Sub "${AWS::StackName}-username"
+
+  DBSecurityGroupId:
+    Description: "Security group ID for database access"
+    Value: !GetAtt DBSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-security-group"
+
+  DBSubnetGroupName:
+    Description: "DB subnet group name"
+    Value: !Ref DBSubnetGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-subnet-group"
+
+  DBResourceId:
+    Description: "RDS Database Resource ID"
+    Value: !GetAtt WordPressDatabase.DbiResourceId
+    Export:
+      Name: !Sub "${AWS::StackName}-resource-id"
+
+  DBConnectionString:
+    Description: "MySQL connection string for WordPress"
+    Value: !Sub "mysql://${DBMasterUsername}@${WordPressDatabase.Endpoint.Address}:${WordPressDatabase.Endpoint.Port}/${DBName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-connection-string"
+
+  MonitoringRoleArn:
+    Description: "ARN of the RDS monitoring role"
+    Value: !GetAtt RDSMonitoringRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-monitoring-role-arn"

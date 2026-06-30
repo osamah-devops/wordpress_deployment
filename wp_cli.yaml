@@ -1,0 +1,25 @@
+# Global WP-CLI Configuration
+
+path: /app
+# Automatically look for the WordPress core files here
+
+url: http://localhost:8080
+# Sets the default site URL for CLI commands when a domain isn't supplied
+
+# Disabled commands for security in container environments
+disabled_commands:
+  - core update
+  - db drop
+
+# Default configurations for core commands
+core config:
+  dbuser: bn_wordpress
+  dbpass: bitnami
+  dbhost: mariadb # Or your specific database container hostname/service name
+
+# Enable color output in Docker logs
+color: true
+
+# Prevents WP-CLI from checking for its own updates inside a read-only or static container
+apache_modules:
+  - mod_rewrite 
