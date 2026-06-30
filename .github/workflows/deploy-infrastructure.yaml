@@ -17,6 +17,7 @@ env:
   AWS_REGION: us-east-1
   ROLE_TO_ASSUME: arn:aws:iam::072754096540:role/Osamah-Neamah
   STACK_PREFIX: wordpress
+  VPC_CIDR: 10.0.0.0/16
 
 jobs:
   # ==========================================
@@ -142,7 +143,11 @@ jobs:
           --stack-name ${{ env.STACK_PREFIX }}-networking \
           --region ${{ env.AWS_REGION }} \
           --no-fail-on-empty-changeset \
-          --capabilities CAPABILITY_NAMED_IAM
+          --parameter-overrides \
+            VpcCidr="${{ env.VPC_CIDR }}" \
+            HostedZoneName="marmil.co" \
+            HostedZoneId="Z06560653HHLUZYIU86O4" \
+          --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM
         
         STACK_ID=$(aws cloudformation describe-stacks \
           --stack-name ${{ env.STACK_PREFIX }}-networking \
