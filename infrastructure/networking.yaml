@@ -326,5 +326,5 @@ Resources:
       Name: !Ref DomainName
       Type: A
       AliasTarget:
-        HostedZoneId: !Ref ApplicationLoadBalancer
-        DNSName: !Ref ApplicationLoadBalancer
+        HostedZoneId: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneID
+        DNSName: !GetAtt ApplicationLoadBalancer.DNSName
