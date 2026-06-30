@@ -86,7 +86,7 @@ jobs:
           --stack-name "${{ env.STACK_PREFIX }}-secrets" \
           --region "${{ env.AWS_REGION }}" \
           --no-fail-on-empty-changeset \
-          --capabilities CAPABILITY_NAMED_IAM \
+          --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM \
           --parameter-overrides \
             DBMasterUsername="marmil" \
             DBMasterPassword="Marmil#Mila"
@@ -222,8 +222,7 @@ jobs:
           --stack-name ${{ env.STACK_PREFIX }}-db \
           --region ${{ env.AWS_REGION }} \
           --no-fail-on-empty-changeset \
-          --capabilities CAPABILITY_NAMED_IAM \
-          --parameter-overrides \
+          --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM \
           --parameter-overrides \
             DBMasterUsername=marmil \
             DBMasterPassword=Marmil#Mila \
