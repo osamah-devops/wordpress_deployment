@@ -15,7 +15,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  ROLE_TO_ASSUME: arn:aws:iam::123456789012:role/github-actions-infra-deploy
+  ROLE_TO_ASSUME: arn:aws:iam::072754096540:role/Osamah-Neamah
   STACK_PREFIX: wordpress
 
 jobs:
