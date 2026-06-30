@@ -152,6 +152,10 @@ jobs:
           --region ${{ env.AWS_REGION }} || true
         
         aws cloudformation wait stack-update-complete \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --region ${{ env.AWS_REGION }} || true
+
+    - name: Output Networking Stack Exports
       id: exports
       run: |
         aws cloudformation describe-stacks \
@@ -167,7 +171,7 @@ jobs:
         
         PRIVATE_SUBNET_1=$(aws cloudformation describe-stacks \
           --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet1`].OutputValue' \
+          --query database.Outputs[?OutputKey==`PrivateSubnet1`].OutputValue' \
           --output text)
         echo "private-subnet-1=$PRIVATE_SUBNET_1" >> $GITHUB_OUTPUT
         
@@ -193,7 +197,6 @@ jobs:
     outputs:
       database-stack-id: ${{ steps.deploy.outputs.stack-id }}
       db-endpoint: ${{ steps.exports.outputs.db-endpoint }}
-      db-security-group: ${{ steps.exports.outputs.db-security-group }}
     
     steps:
     - name: Checkout Code
@@ -250,19 +253,17 @@ jobs:
           --query 'Stacks[0].Outputs[?OutputKey==`DBInstanceEndpoint`].OutputValue' \
           --output text)
         echo "db-endpoint=$DB_ENDPOINT" >> $GITHUB_OUTPUT
-        
-        DB_SG=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-db \
-          --query 'Stacks[0].Outputs[?OutputKey==`DBSecurityGroupId`].OutputValue' \
-          --output text)
-        echo "db-security-group=$DB_SG" >> $GITHUB_OUTPUT
+        aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --query 'Stacks[0].Outputs' \
+          --output table
 
   # ==========================================
   # DEPLOY ECS INFRASTRUCTURE
   # ==========================================
   deploy-ecs:
     name: Deploy ECS Cluster and Services
-    needs: [deploy-networking, deploy-database]
+    needs: deploy-networking
     runs-on: ubuntu-latest
     outputs:
       ecs-stack-id: ${{ steps.deploy.outputs.stack-id }}
@@ -278,21 +279,6 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
         audience: sts.amazonaws.com
 
-    - name: Get IAM Role ARNs
-      id: roles
-      run: |
-        EXEC_ROLE=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-secrets \
-          --query 'Stacks[0].Outputs[?OutputKey==`ECSTaskExecutionRoleArn`].OutputValue' \
-          --output text)
-        echo "execution-role=$EXEC_ROLE" >> $GITHUB_OUTPUT
-        
-        TASK_ROLE=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-secrets \
-          --query 'Stacks[0].Outputs[?OutputKey==`ECSTaskRoleArn`].OutputValue' \
-          --output text)
-        echo "task-role=$TASK_ROLE" >> $GITHUB_OUTPUT
-
     - name: Deploy ECS Stack
       id: deploy
       run: |
@@ -301,15 +287,7 @@ jobs:
           --stack-name ${{ env.STACK_PREFIX }}-ecs \
           --region ${{ env.AWS_REGION }} \
           --no-fail-on-empty-changeset \
-          --capabilities CAPABILITY_NAMED_IAM \
-          --parameter-overrides \
-            VpcId=${{ needs.deploy-networking.outputs.vpc-id }} \
-            SubnetIds="${{ needs.deploy-networking.outputs.private-subnet-1 }},${{ needs.deploy-networking.outputs.private-subnet-2 }}" \
-            SecurityGroupId=${{ needs.deploy-networking.outputs.ecs-security-group }} \
-            TaskExecutionRoleArn=${{ steps.roles.outputs.execution-role }} \
-            TaskRoleArn=${{ steps.roles.outputs.task-role }} \
-            DatabaseEndpoint=${{ needs.deploy-database.outputs.db-endpoint }} \
-            DatabaseSecurityGroupId=${{ needs.deploy-database.outputs.db-security-group }}
+          --capabilities CAPABILITY_NAMED_IAM
         
         STACK_ID=$(aws cloudformation describe-stacks \
           --stack-name ${{ env.STACK_PREFIX }}-ecs \
