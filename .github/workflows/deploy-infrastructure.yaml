@@ -131,26 +131,11 @@ jobs:
             --template-file infrastructure/networking.yaml \
             --stack-name "${{ env.STACK_PREFIX }}-networking" \
             --no-fail-on-empty-changeset \
-            --change-set-name "git-${{ github.sha }}" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameters \
                 ParameterKey=HostedZoneId,ParameterValue="${{ secrets.HOSTED_ZONE_ID }}" \
                 ParameterKey=DomainName,ParameterValue="${{ secrets.DOMAIN_NAME }}" \
             --region us-east-1
-
-    - name: Execute Changes Natively (Async Fire-and-Forget)
-      run: |
-        # We wait up to 30 seconds for the engine compiling phase to finish
-        aws cloudformation wait change-set-create-complete \
-        --stack-name wordpress-networking \
-        --change-set-name "git-${{ github.sha }}" \
-        --region us-east-1
-    - name: Execute Change Set
-      run: |
-        aws cloudformation execute-change-set \
-          --stack-name wordpress-networking \
-          --change-set-name "git-${{ github.sha }}" \
-          --region us-east-1
 
   # ==========================================
   # DEPLOY DATABASE
