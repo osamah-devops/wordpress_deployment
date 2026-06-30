@@ -87,7 +87,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
-          SourceSecurityGroupId: !ImportValue "${AWS::wordpress-networking}-ecs-sg-id"
+          SourceSecurityGroupId: !ImportValue "${AWS::wordpress-networking}-allowed-sg-id"
           Description: "MySQL from ECS containers"
       SecurityGroupEgress:
         - IpProtocol: -1
