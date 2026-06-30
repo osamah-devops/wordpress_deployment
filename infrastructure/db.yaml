@@ -40,11 +40,11 @@ Parameters:
     Default: db.t3.micro
     Description: Database instance class
     AllowedValues:
-      - db.t3.micro      # 1 vCPU, 1 GB RAM - free tier
-      - db.t3.small      # 1 vCPU, 2 GB RAM
-      - db.t3.medium     # 2 vCPU, 4 GB RAM
-      - db.t4g.micro     # 2 vCPU, 1 GB RAM (ARM-based, cheaper)
-      - db.t4g.small     # 2 vCPU, 2 GB RAM (ARM-based)
+      - db.t3.micro 
+      - db.t3.small  
+      - db.t3.medium 
+      - db.t4g.micro  
+      - db.t4g.small  
   
   AllocatedStorage:
     Type: Number
