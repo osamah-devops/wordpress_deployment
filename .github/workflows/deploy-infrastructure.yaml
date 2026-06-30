@@ -130,7 +130,7 @@ jobs:
             aws cloudformation create-change-set \
             --stack-name wordpress-networking \
             --change-set-name "git-${{ github.sha }}" \
-            --template-body file://template.yaml \
+            --template-body file://infrastructure/networking.yaml \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameters \
                 ParameterKey=HostedZoneId,ParameterValue="${{ secrets.HOSTED_ZONE_ID }}" \
