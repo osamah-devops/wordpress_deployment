@@ -313,11 +313,11 @@ Resources:
     Type: AWS::Route53::RecordSet
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: !Select [0, !GetAtt SslCertificate.DomainValidationOptions.ResourceRecordName]
-      Type: !Select [0, !GetAtt SslCertificate.DomainValidationOptions.ResourceRecordType]
+      Name: !Select [0, !Ref SslCertificate.DomainValidationOptions.ResourceRecordName]
+      Type: !Select [0, !Ref SslCertificate.DomainValidationOptions.ResourceRecordType]
       TTL: '60'
       ResourceRecords:
-        - !Select [0, !GetAtt SslCertificate.DomainValidationOptions.ResourceRecordValue]
+        - !Select [0, !Ref SslCertificate.DomainValidationOptions.ResourceRecordValue]
 
   WordPressDomainRecord:
     Type: AWS::Route53::RecordSet
@@ -326,5 +326,5 @@ Resources:
       Name: !Ref DomainName
       Type: A
       AliasTarget:
-        HostedZoneId: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneID
-        DNSName: !GetAtt ApplicationLoadBalancer.DNSName
+        HostedZoneId: !Ref ApplicationLoadBalancer.CanonicalHostedZoneID
+        DNSName: !Ref ApplicationLoadBalancer.DNSName
