@@ -83,17 +83,20 @@ jobs:
       run: |
         aws cloudformation deploy \
           --template-file infrastructure/secrets.yaml \
-          --stack-name ${{ env.STACK_PREFIX }}-secrets \
-          --region ${{ env.AWS_REGION }} \
-          --parameter-overrides \
-            DBMasterUsername=marmil \
-            DBMasterPassword=Marmil#Mila \
+          --stack-name "${{ env.STACK_PREFIX }}-secrets" \
+          --region "${{ env.AWS_REGION }}" \
           --no-fail-on-empty-changeset \
-          --capabilities CAPABILITY_NAMED_IAM
+          --capabilities CAPABILITY_NAMED_IAM \
+          --parameter-overrides \
+            DBMasterUsername="marmil" \
+            DBMasterPassword="Marmil#Mila"
+
         STACK_ID=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-secrets \
+          --stack-name "${{ env.STACK_PREFIX }}-secrets" \
+          --region "${{ env.AWS_REGION }}" \
           --query 'Stacks[0].StackId' \
           --output text)
+        
         echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
 
     - name: Wait for Secrets Stack
