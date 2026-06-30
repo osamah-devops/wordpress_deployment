@@ -1,7 +1,15 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "RDS MySQL Database for WordPress deployment with high availability and automated backups"
 
+# ==========================================
+# PARAMETERS SECTION
+# ==========================================
 Parameters:
+  NetworkStackName:
+    Type: String
+    Default: wordpress-networking
+    Description: "The name of your deployed base networking CloudFormation stack."
+
   DBMasterUsername:
     Type: String
     Default: marmil
@@ -18,26 +26,6 @@ Parameters:
     Type: String
     Default: wordpress
     Description: Name of the WordPress database
-  
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: VPC ID for the RDS instance
-    Default: "wordpress-networking-vpc-id"
-  
-  PrivateSubnet1Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: First private subnet for DB subnet group
-    Default: "private-subnet-1-id"
-  
-  PrivateSubnet2Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Second private subnet for DB subnet group
-    Default: "private-subnet-2-id"
-  
-  AllowedSecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
-    Description: Security group of ECS containers that can access the database
-    Default: "allowed-sg-id"
   
   DBInstanceClass:
     Type: String
@@ -56,7 +44,7 @@ Parameters:
     Description: Allocated storage in GB
     MinValue: 20
     MaxValue: 65536
-  
+
   BackupRetentionPeriod:
     Type: Number
     Default: 7
@@ -74,9 +62,6 @@ Parameters:
     Default: "sun:04:00-sun:05:00"
     Description: Preferred maintenance window (UTC)
 
-Conditions:
-  IsProduction: !Equals [!Ref "AWS::StackName", "wordpress-db"]
-
 Resources:
   # ==========================================
   # RDS DATABASE SECURITY GROUP
@@ -86,12 +71,14 @@ Resources:
     Properties:
       GroupName: wordpress-db-sg
       GroupDescription: "Security group for WordPress RDS database - allows access from ECS containers"
-      VpcId: !ImportValue "wordpress-networking-vpc-id"
+      VpcId: !ImportValue 
+        Fn::Sub: "${NetworkStackName}-vpc-id"
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
-          SourceSecurityGroupId: !ImportValue "wordpress-networking-allowed-sg-id"
+          SourceSecurityGroupId: !ImportValue 
+            Fn::Sub: "${NetworkStackName}-ecs-sg-id"
           Description: "MySQL from ECS containers"
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -112,8 +99,10 @@ Resources:
       DBSubnetGroupName: wordpress-db-subnet-group
       DBSubnetGroupDescription: "Subnet group for WordPress RDS in multiple AZs"
       SubnetIds:
-        - !ImportValue "wordpress-networking-private-subnet-1-id"
-        - !ImportValue "wordpress-networking-private-subnet-2-id"
+        - !ImportValue 
+          Fn::Sub: "${NetworkStackName}-private-subnet-1-id"
+        - !ImportValue 
+          Fn::Sub: "${NetworkStackName}-private-subnet-2-id"
       Tags:
         - Key: Name
           Value: wordpress-db-subnet-group
@@ -135,6 +124,10 @@ Resources:
       AllocatedStorage: !Ref AllocatedStorage
       StorageType: gp3
       StorageEncrypted: true
+      
+      # Linked Tuning Configurations
+      DBParameterGroupName: !Ref WordPressDBParameterGroup
+      OptionGroupName: !Ref WordPressDBOptionGroup
       
       # Database Credentials
       MasterUsername: !Ref DBMasterUsername
@@ -170,7 +163,7 @@ Resources:
       AutoMinorVersionUpgrade: true
       DeletionProtection: true
       EnableIAMDatabaseAuthentication: false
-      DeleteAutomatedBackups:  false
+      DeleteAutomatedBackups: false
       Tags:
         - Key: Name
           Value: wordpress-database
@@ -208,24 +201,12 @@ Resources:
       Description: "Optimized MySQL 8.0 parameters for WordPress"
       Family: mysql8.0
       Parameters:
-        # WordPress Performance Tuning
         max_connections: 100
-        innodb_buffer_pool_size: "{DBInstanceClassMemory*3/4}"
-        innodb_log_file_size: 512M
         slow_query_log: 1
         long_query_time: 2
         log_bin_trust_function_creators: 1
         character_set_server: utf8mb4
         collation_server: utf8mb4_unicode_ci
-        
-        # Replication & Binary Logging
-        binlog_format: ROW
-        binlog_retention_hours: 24
-        
-        # Query Cache (disabled in MySQL 8.0, but set for compatibility)
-        query_cache_type: 0
-        
-        # Connection Timeout
         interactive_timeout: 300
         wait_timeout: 300
       Tags:
@@ -274,110 +255,20 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: wordpress-db-low-storage
-      AlarmDescription: "Alert when RDS free storage is low"
+      AlarmDescription: "Alert when RDS free storage falls below 5GB"
       MetricName: FreeStorageSpace
       Namespace: AWS/RDS
       Statistic: Average
       Period: 300
       EvaluationPeriods: 1
-      Threshold: 2147483648  # 2 GB in bytes
-      ComparisonOperator: LessThanThreshold
+      Threshold: 5368709120   # 5GB represented cleanly in bytes
+      ComparisonOperator: LessThanOrEqualToThreshold
       Dimensions:
         - Name: DBInstanceIdentifier
           Value: !Ref WordPressDatabase
-      TreatMissingData: notBreaching
-
-  DBConnectionsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: wordpress-db-high-connections
-      AlarmDescription: "Alert when database connections are high"
-      MetricName: DatabaseConnections
-      Namespace: AWS/RDS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 80
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: DBInstanceIdentifier
-          Value: !Ref WordPressDatabase
-      TreatMissingData: notBreaching
-
-  # ==========================================
-  # SECRETS MANAGER ROTATION
-  # ==========================================
-  DBSecretRotationRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: secretsmanager.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: RDSAccessForRotation
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - rds-db:connect
-                Resource: !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:${WordPressDatabase}"
+      TreatMissingData: breaching
 
 Outputs:
-  DBInstanceEndpoint:
-    Description: "RDS Database endpoint address"
+  DBEndpointAddress:
+    Description: "Connection endpoint for the WordPress database instance"
     Value: !GetAtt WordPressDatabase.Endpoint.Address
-    Export:
-      Name: !Sub "${AWS::StackName}-endpoint"
-
-  DBInstancePort:
-    Description: "RDS Database port"
-    Value: !GetAtt WordPressDatabase.Endpoint.Port
-    Export:
-      Name: !Sub "${AWS::StackName}-port"
-
-  DBName:
-    Description: "WordPress database name"
-    Value: !Ref DBName
-    Export:
-      Name: !Sub "${AWS::StackName}-db-name"
-
-  DBMasterUsername:
-    Description: "Database master username"
-    Value: !Ref DBMasterUsername
-    Export:
-      Name: !Sub "${AWS::StackName}-username"
-
-  DBSecurityGroupId:
-    Description: "Security group ID for database access"
-    Value: !GetAtt DBSecurityGroup.GroupId
-    Export:
-      Name: !Sub "${AWS::StackName}-security-group"
-
-  DBSubnetGroupName:
-    Description: "DB subnet group name"
-    Value: !Ref DBSubnetGroup
-    Export:
-      Name: !Sub "${AWS::StackName}-subnet-group"
-
-  DBResourceId:
-    Description: "RDS Database Resource ID"
-    Value: !GetAtt WordPressDatabase.DbiResourceId
-    Export:
-      Name: !Sub "${AWS::StackName}-resource-id"
-
-  DBConnectionString:
-    Description: "MySQL connection string for WordPress"
-    Value: !Sub "mysql://${DBMasterUsername}@${WordPressDatabase.Endpoint.Address}:${WordPressDatabase.Endpoint.Port}/${DBName}"
-    Export:
-      Name: !Sub "${AWS::StackName}-connection-string"
-
-  MonitoringRoleArn:
-    Description: "ARN of the RDS monitoring role"
-    Value: !GetAtt RDSMonitoringRole.Arn
-    Export:
-      Name: !Sub "${AWS::StackName}-monitoring-role-arn"
