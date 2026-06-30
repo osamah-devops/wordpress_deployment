@@ -130,19 +130,21 @@ jobs:
       run: |
         aws cloudformation deploy \
           --template-file infrastructure/networking.yaml \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --region ${{ env.AWS_REGION }} \
+          --stack-name "${{ env.STACK_PREFIX }}-networking" \
+          --region "${{ env.AWS_REGION }}" \
           --no-fail-on-empty-changeset \
+          --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM \
           --parameter-overrides \
             VpcCidr="${{ env.VPC_CIDR }}" \
             DomainName="marmil.co" \
-            HostedZoneId="Z06560653HHLUZYIU86O4" \
-          --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM
+            HostedZoneId="Z06560653HHLUZYIU86O4"
         
         STACK_ID=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
+          --stack-name "${{ env.STACK_PREFIX }}-networking" \
+          --region "${{ env.AWS_REGION }}" \
           --query 'Stacks[0].StackId' \
           --output text)
+        
         echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
 
     - name: Output Networking Stack Exports
