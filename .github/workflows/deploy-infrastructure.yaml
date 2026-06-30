@@ -137,7 +137,8 @@ jobs:
           --parameter-overrides \
             VpcCidr="${{ env.VPC_CIDR }}" \
             DomainName="marmil.co" \
-            HostedZoneId="Z06560653HHLUZYIU86O4"
+            HostedZoneId="Z06560653HHLUZYIU86O4" \
+            --no-wait
         
         STACK_ID=$(aws cloudformation describe-stacks \
           --stack-name "${{ env.STACK_PREFIX }}-networking" \

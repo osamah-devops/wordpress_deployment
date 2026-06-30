@@ -10,7 +10,7 @@ Parameters:
     Description: "The Route 53 Hosted Zone ID for your domain (e.g., Z0123456789ABC)"
   DomainName:
     Type: String
-    Description: "The primary domain name for your WordPress site (e.g., example.com or ://example.com)"
+    Description: "The primary domain name for your WordPress site (e.g., example.com or wp.example.com - DO NOT include http://)"
 
 Resources:
   # ==========================================
@@ -295,9 +295,8 @@ Resources:
           TargetGroupArn: !Ref AlbTargetGroup
 
   # ==========================================
-  # CERTIFICATES & DNS ROUTING
+  # CERTIFICATES & DNS AUTOMATION
   # ==========================================
-  # Replace it with this valid structure:
   SslCertificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
@@ -305,7 +304,27 @@ Resources:
       ValidationMethod: DNS
       DomainValidationOptions:
         - DomainName: !Ref DomainName
-          HostedZoneId: !Ref HostedZoneId # <--- Correctly nested mapping
+          HostedZoneId: !Ref HostedZoneId
       Tags:
         - Key: Name
           Value: wordpress-ssl-cert
+
+  CertificateValidationRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SslCertificate.DomainValidationOptions.0.ResourceRecordName
+      Type: !GetAtt SslCertificate.DomainValidationOptions.0.ResourceRecordType
+      TTL: '60'
+      ResourceRecords:
+        - !GetAtt SslCertificate.DomainValidationOptions.0.ResourceRecordValue
+
+  WordPressDomainRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        HostedZoneId: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneID
+        DNSName: !GetAtt ApplicationLoadBalancer.DNSName
