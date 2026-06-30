@@ -133,7 +133,7 @@ jobs:
           --stack-name "${{ env.STACK_PREFIX }}-networking" \
           --region "${{ env.AWS_REGION }}" \
           --no-fail-on-empty-changeset \
-          --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM \
+          --capabilities CAPABILITY_NAMED_IAM\
           --parameter-overrides \
             VpcCidr="${{ env.VPC_CIDR }}" \
             DomainName="marmil.co" \
