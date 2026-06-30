@@ -166,8 +166,7 @@ Resources:
       AutoMinorVersionUpgrade: true
       DeletionProtection: true
       EnableIAMDatabaseAuthentication: false
-      EnableDeletionProtection: true
-      
+      DeleteAutomatedBackups:  false
       Tags:
         - Key: Name
           Value: wordpress-database

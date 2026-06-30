@@ -11,6 +11,14 @@ Parameters:
   DomainName:
     Type: String
     Description: "The primary domain name for your WordPress site (e.g., example.com or wp.example.com - DO NOT include http://)"
+  Environment:
+    Type: String
+    Default: development
+    Description: "Deployment environment (e.g., production, staging, development)"
+    AllowedPattern: "^(production|staging|development)$"
+
+Conditions:
+  EnvironmentIsProduction: !Equals [ !Ref Environment, "production" ]
 
 Resources:
   # ==========================================
@@ -160,6 +168,7 @@ Resources:
     DependsOn: VPCGatewayAttachment
     Properties:
       Domain: vpc
+    Condition: EnvironmentIsProduction
 
   NatGateway2:
     Type: AWS::EC2::NatGateway
@@ -169,6 +178,7 @@ Resources:
       Tags:
         - Key: Name
           Value: wordpress-nat-gw-2
+    Condition: EnvironmentIsProduction
 
   PrivateRouteTable2:
     Type: AWS::EC2::RouteTable
@@ -177,6 +187,7 @@ Resources:
       Tags:
         - Key: Name
           Value: wordpress-private-rt-2
+    Condition: EnvironmentIsProduction
 
   PrivateRoute2:
     Type: AWS::EC2::Route
@@ -184,12 +195,14 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable2
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NatGateway2
+      Condition: EnvironmentIsProduction
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable2
+    Condition: EnvironmentIsProduction
 
   # ==========================================
   # SECURITY GROUPS
