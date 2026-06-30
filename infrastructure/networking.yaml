@@ -255,8 +255,8 @@ Resources:
       HealthCheckProtocol: HTTP
       HealthCheckPort: "8080"
       HealthCheckPath: /wp-login.php
-      IntervalSeconds: 30
-      TimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
       Tags:
