@@ -297,12 +297,15 @@ Resources:
   # ==========================================
   # CERTIFICATES & DNS ROUTING
   # ==========================================
+  # Replace it with this valid structure:
   SslCertificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
       DomainName: !Ref DomainName
       ValidationMethod: DNS
-      HostedZoneId: !Ref HostedZoneId
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId # <--- Correctly nested mapping
       Tags:
         - Key: Name
           Value: wordpress-ssl-cert
