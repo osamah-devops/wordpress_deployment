@@ -85,9 +85,11 @@ jobs:
           --template-file infrastructure/secrets.yaml \
           --stack-name ${{ env.STACK_PREFIX }}-secrets \
           --region ${{ env.AWS_REGION }} \
+          --parameter-overrides \
+            DBMasterUsername=marmil \
+            DBMasterPassword=Marmil#Mila \
           --no-fail-on-empty-changeset \
           --capabilities CAPABILITY_NAMED_IAM
-        
         STACK_ID=$(aws cloudformation describe-stacks \
           --stack-name ${{ env.STACK_PREFIX }}-secrets \
           --query 'Stacks[0].StackId' \
@@ -219,6 +221,9 @@ jobs:
           --no-fail-on-empty-changeset \
           --capabilities CAPABILITY_NAMED_IAM \
           --parameter-overrides \
+          --parameter-overrides \
+            DBMasterUsername=marmil \
+            DBMasterPassword=Marmil#Mila \
             VpcId=${{ needs.deploy-networking.outputs.vpc-id }} \
             PrivateSubnet1Id=${{ needs.deploy-networking.outputs.private-subnet-1 }} \
             PrivateSubnet2Id=${{ needs.deploy-networking.outputs.private-subnet-2 }} \
