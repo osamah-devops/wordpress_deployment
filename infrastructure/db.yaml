@@ -27,8 +27,6 @@ Parameters:
   PrivateSubnet1Id:
     Type: AWS::EC2::Subnet::Id
     Description: First private subnet for DB subnet group
-    AllowedValues: 
-      - "wordpress-networking-private-subnet-1-id"
     Default: "private-subnet-1-id"
   
   PrivateSubnet2Id:
