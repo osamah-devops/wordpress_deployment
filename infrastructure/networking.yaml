@@ -297,6 +297,7 @@ Resources:
   # ==========================================
   # CERTIFICATES & DNS AUTOMATION
   # ==========================================
+
   SslCertificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
@@ -304,20 +305,10 @@ Resources:
       ValidationMethod: DNS
       DomainValidationOptions:
         - DomainName: !Ref DomainName
-          HostedZoneId: !Ref HostedZoneId
+          HostedZoneId: !Ref HostedZoneId # <-- ACM creates and checks validation records automatically
       Tags:
         - Key: Name
           Value: wordpress-ssl-cert
-
-  CertificateValidationRecord:
-    Type: AWS::Route53::RecordSet
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Select [0, !GetAtt SslCertificate.DomainValidationOptions.ResourceRecordName]
-      Type: !Select [0, !GetAtt SslCertificate.DomainValidationOptions.ResourceRecordType]
-      TTL: '60'
-      ResourceRecords:
-        - !Select [0, !GetAtt SslCertificate.DomainValidationOptions.ResourceRecordValue]
 
   WordPressDomainRecord:
     Type: AWS::Route53::RecordSet
