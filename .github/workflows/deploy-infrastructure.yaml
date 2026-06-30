@@ -127,10 +127,11 @@ jobs:
 
     - name: Propose Infrastructure Changes
       run: |
-            aws cloudformation create-change-set \
-            --stack-name wordpress-networking \
+            aws cloudformation deploy \
+            --template-file infrastructure/networking.yaml \
+            --stack-name "${{ env.STACK_PREFIX }}-networking" \
+            --no-fail-on-empty-changeset \
             --change-set-name "git-${{ github.sha }}" \
-            --template-body file://infrastructure/networking.yaml \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameters \
                 ParameterKey=HostedZoneId,ParameterValue="${{ secrets.HOSTED_ZONE_ID }}" \
