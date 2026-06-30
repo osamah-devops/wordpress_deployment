@@ -333,7 +333,7 @@ Resources:
       ValidationMethod: DNS
       DomainValidationOptions:
         - DomainName: !Ref DomainName
-          HostedZoneId: !Ref HostedZoneId # <-- ACM creates and checks validation records automatically
+          HostedZoneId: !Ref HostedZoneId
       Tags:
         - Key: Name
           Value: wordpress-ssl-cert
