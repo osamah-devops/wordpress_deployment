@@ -100,16 +100,6 @@ jobs:
         
         echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
 
-    - name: Wait for Secrets Stack
-      run: |
-        aws cloudformation wait stack-create-complete \
-          --stack-name ${{ env.STACK_PREFIX }}-secrets \
-          --region ${{ env.AWS_REGION }} || true
-        
-        aws cloudformation wait stack-update-complete \
-          --stack-name ${{ env.STACK_PREFIX }}-secrets \
-          --region ${{ env.AWS_REGION }} || true
-
   # ==========================================
   # DEPLOY NETWORKING
   # ==========================================
@@ -154,16 +144,6 @@ jobs:
           --query 'Stacks[0].StackId' \
           --output text)
         echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
-
-    - name: Wait for Networking Stack
-      run: |
-        aws cloudformation wait stack-create-complete \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --region ${{ env.AWS_REGION }} || true
-        
-        aws cloudformation wait stack-update-complete \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --region ${{ env.AWS_REGION }} || true
 
     - name: Output Networking Stack Exports
       id: exports
@@ -242,16 +222,6 @@ jobs:
           --output text)
         echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
 
-    - name: Wait for Database Stack
-      run: |
-        aws cloudformation wait stack-create-complete \
-          --stack-name ${{ env.STACK_PREFIX }}-db \
-          --region ${{ env.AWS_REGION }} || true
-        
-        aws cloudformation wait stack-update-complete \
-          --stack-name ${{ env.STACK_PREFIX }}-db \
-          --region ${{ env.AWS_REGION }} || true
-
     - name: Output Database Stack Exports
       id: exports
       run: |
@@ -306,16 +276,6 @@ jobs:
           --query 'Stacks[0].StackId' \
           --output text)
         echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
-
-    - name: Wait for ECS Stack
-      run: |
-        aws cloudformation wait stack-create-complete \
-          --stack-name ${{ env.STACK_PREFIX }}-ecs \
-          --region ${{ env.AWS_REGION }} || true
-        
-        aws cloudformation wait stack-update-complete \
-          --stack-name ${{ env.STACK_PREFIX }}-ecs \
-          --region ${{ env.AWS_REGION }} || true
 
     - name: Output ECS Stack Exports
       run: |
