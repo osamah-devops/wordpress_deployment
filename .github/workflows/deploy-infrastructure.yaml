@@ -135,6 +135,7 @@ jobs:
             --parameter-overrides \
               VpcCidr=${{ env.VPC_CIDR }} \
               DomainName=marmil.co \
+              HostedZoneId=Z06560653HHLUZYIU86O4 \
             --region us-east-1
 
   # ==========================================
