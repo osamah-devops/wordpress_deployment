@@ -125,60 +125,31 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
         audience: sts.amazonaws.com
 
-    - name: Deploy Networking Stack
-      id: deploy
+    - name: Propose Infrastructure Changes
       run: |
-        aws cloudformation deploy \
-          --template-file infrastructure/networking.yaml \
-          --stack-name "${{ env.STACK_PREFIX }}-networking" \
-          --region "${{ env.AWS_REGION }}" \
-          --no-fail-on-empty-changeset \
-          --capabilities CAPABILITY_NAMED_IAM\
-          --parameter-overrides \
-            VpcCidr="${{ env.VPC_CIDR }}" \
-            DomainName="marmil.co" \
-            HostedZoneId="Z06560653HHLUZYIU86O4" \
-            --no-wait
-        
-        STACK_ID=$(aws cloudformation describe-stacks \
-          --stack-name "${{ env.STACK_PREFIX }}-networking" \
-          --region "${{ env.AWS_REGION }}" \
-          --query 'Stacks[0].StackId' \
-          --output text)
-        
-        echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
+            aws cloudformation create-change-set \
+            --stack-name wordpress-networking \
+            --change-set-name "git-${{ github.sha }}" \
+            --template-body file://template.yaml \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --parameters \
+                ParameterKey=HostedZoneId,ParameterValue="${{ secrets.HOSTED_ZONE_ID }}" \
+                ParameterKey=DomainName,ParameterValue="${{ secrets.DOMAIN_NAME }}" \
+            --region us-east-1
 
-    - name: Output Networking Stack Exports
-      id: exports
+    - name: Execute Changes Natively (Async Fire-and-Forget)
       run: |
-        aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --query 'Stacks[0].Outputs' \
-          --output table
-        
-        VPC_ID=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --query 'Stacks[0].Outputs[?OutputKey==`VpcId`].OutputValue' \
-          --output text)
-        echo "vpc-id=$VPC_ID" >> $GITHUB_OUTPUT
-        
-        PRIVATE_SUBNET_1=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --query database.Outputs[?OutputKey==`PrivateSubnet1`].OutputValue' \
-          --output text)
-        echo "private-subnet-1=$PRIVATE_SUBNET_1" >> $GITHUB_OUTPUT
-        
-        PRIVATE_SUBNET_2=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet2`].OutputValue' \
-          --output text)
-        echo "private-subnet-2=$PRIVATE_SUBNET_2" >> $GITHUB_OUTPUT
-        
-        ECS_SG=$(aws cloudformation describe-stacks \
-          --stack-name ${{ env.STACK_PREFIX }}-networking \
-          --query 'Stacks[0].Outputs[?OutputKey==`SecurityGroupId`].OutputValue' \
-          --output text)
-        echo "ecs-security-group=$ECS_SG" >> $GITHUB_OUTPUT
+        # We wait up to 30 seconds for the engine compiling phase to finish
+        aws cloudformation wait change-set-create-complete \
+        --stack-name wordpress-networking \
+        --change-set-name "git-${{ github.sha }}" \
+        --region us-east-1
+    - name: Execute Change Set
+      run: |
+        aws cloudformation execute-change-set \
+          --stack-name wordpress-networking \
+          --change-set-name "git-${{ github.sha }}" \
+          --region us-east-1
 
   # ==========================================
   # DEPLOY DATABASE
