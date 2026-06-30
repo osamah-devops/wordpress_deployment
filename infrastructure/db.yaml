@@ -24,21 +24,21 @@ Parameters:
     Description: VPC ID for the RDS instance
     AllowedValues: 
       - !ImportValue "wordpress-networking-vpc-id"
-    Default: !ImportValue "wordpress-networking-vpc-id"
+    Default: "wordpress-networking-vpc-id"
   
   PrivateSubnet1Id:
     Type: AWS::EC2::Subnet::Id
     Description: First private subnet for DB subnet group
     AllowedValues: 
       - !ImportValue "wordpress-networking-private-subnet-1-id"
-    Default: !ImportValue "wordpress-networking-private-subnet-1-id"
+    Default: "wordpress-networking-private-subnet-1-id"
   
   PrivateSubnet2Id:
     Type: AWS::EC2::Subnet::Id
     Description: Second private subnet for DB subnet group
     AllowedValues: 
       - !ImportValue "wordpress-networking-private-subnet-2-id"
-    Default: !ImportValue "wordpress-networking-private-subnet-2-id"
+    Default: "wordpress-networking-private-subnet-2-id"
   
   AllowedSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
@@ -46,7 +46,7 @@ Parameters:
     AllowedPattern: 
       - !ImportValue "wordpress-networking-allowed-sg-id"
     Default: 
-      - !ImportValue "wordpress-networking-allowed-sg-id"
+      - "wordpress-networking-allowed-sg-id"
   
   DBInstanceClass:
     Type: String
