@@ -33,8 +33,15 @@ if ( isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWAR
 // 4. Dynamic Site URL Handling
 if ( isset($_SERVER['HTTP_HOST']) ) {
     $http_protocol = ( isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ) ? 'https://' : 'http://';
-    define( 'WP_HOME',    $http_protocol . $_SERVER['HTTP_HOST'] );
-    define( 'WP_SITEURL', $http_protocol . $_SERVER['HTTP_HOST'] );
+    $site_port = getenv('WORDPRESS_SITE_PORT') ?: ( $_SERVER['HTTP_X_FORWARDED_PORT'] ?? '8080' );
+    $host = $_SERVER['HTTP_HOST'];
+
+    if ( strpos($host, ':') === false && !empty($site_port) ) {
+        $host .= ':' . $site_port;
+    }
+
+    define( 'WP_HOME',    $http_protocol . $host );
+    define( 'WP_SITEURL', $http_protocol . $host );
 }
 
 // 5. Security and Tweak Configurations
