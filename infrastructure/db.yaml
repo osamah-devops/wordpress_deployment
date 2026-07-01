@@ -156,8 +156,7 @@ Resources:
         - slowquery
       MonitoringInterval: 60
       MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
-      EnablePerformanceInsights: true
-      PerformanceInsightsRetentionPeriod: 7
+      EnablePerformanceInsights: false
       
       # Automation
       AutoMinorVersionUpgrade: true
