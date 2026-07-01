@@ -365,6 +365,25 @@ jobs:
           exit 1
         fi
 
+        if [ "$FINAL_STATUS" = "ROLLBACK_COMPLETE" ] || \
+           [ "$FINAL_STATUS" = "ROLLBACK_FAILED" ] || \
+           [ "$FINAL_STATUS" = "CREATE_FAILED" ] || \
+           [ "$FINAL_STATUS" = "DELETE_FAILED" ] || \
+           [ "$FINAL_STATUS" = "UPDATE_ROLLBACK_COMPLETE" ] || \
+           [ "$FINAL_STATUS" = "UPDATE_ROLLBACK_FAILED" ] || \
+           [ "$FINAL_STATUS" = "IMPORT_ROLLBACK_COMPLETE" ]; then
+          echo "ECS stack is in non-updatable state ($FINAL_STATUS). Deleting before deploy..."
+          aws cloudformation delete-stack \
+            --stack-name "$STACK_NAME" \
+            --region "${{ env.AWS_REGION }}"
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$STACK_NAME" \
+            --region "${{ env.AWS_REGION }}"
+
+          echo "ECS stack deleted and ready for fresh create."
+        fi
+
     - name: Deploy ECS Stack
       id: deploy
       run: |
