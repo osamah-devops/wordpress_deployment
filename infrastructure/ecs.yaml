@@ -130,15 +130,15 @@ Resources:
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: ecs
           Environment:
-            - Name: WORDPRESS_DB_HOST
+            - Name: WORDPRESS_DATABASE_HOST
               Value: !Ref DatabaseEndpoint
-            - Name: WORDPRESS_DB_NAME
+            - Name: WORDPRESS_DATABASE_NAME
               Value: wordpress
           Secrets:
-            - Name: WORDPRESS_DB_USER
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:wordpress-db-user:SecretString:username"
-            - Name: WORDPRESS_DB_PASSWORD
-              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:wordpress-db-password:SecretString:password"
+            - Name: WORDPRESS_DATABASE_USER
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:wordpress-db-user:username::"
+            - Name: WORDPRESS_DATABASE_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:wordpress-db-password:password::"
 
   # ==========================================
   # ECS SERVICE

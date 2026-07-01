@@ -360,6 +360,32 @@ jobs:
           --output text)
         echo "stack-id=$STACK_ID" >> $GITHUB_OUTPUT
 
+    - name: Force New ECS Deployment
+      run: |
+        CLUSTER_NAME=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --region ${{ env.AWS_REGION }} \
+          --query 'Stacks[0].Outputs[?OutputKey==`ClusterName`].OutputValue' \
+          --output text)
+
+        SERVICE_NAME=$(aws cloudformation describe-stacks \
+          --stack-name ${{ env.STACK_PREFIX }}-ecs \
+          --region ${{ env.AWS_REGION }} \
+          --query 'Stacks[0].Outputs[?OutputKey==`ServiceName`].OutputValue' \
+          --output text)
+
+        echo "Forcing deployment for service $SERVICE_NAME in cluster $CLUSTER_NAME"
+        aws ecs update-service \
+          --cluster "$CLUSTER_NAME" \
+          --service "$SERVICE_NAME" \
+          --force-new-deployment \
+          --region ${{ env.AWS_REGION }}
+
+        aws ecs wait services-stable \
+          --cluster "$CLUSTER_NAME" \
+          --services "$SERVICE_NAME" \
+          --region ${{ env.AWS_REGION }}
+
     - name: Output ECS Stack Exports
       run: |
         aws cloudformation describe-stacks \
