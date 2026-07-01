@@ -124,6 +124,30 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
         audience: sts.amazonaws.com
 
+    - name: Recover Networking Stack If In Rollback Complete
+      run: |
+        STACK_NAME="${{ env.STACK_PREFIX }}-networking"
+        STATUS=$(aws cloudformation describe-stacks \
+          --stack-name "$STACK_NAME" \
+          --region "${{ env.AWS_REGION }}" \
+          --query 'Stacks[0].StackStatus' \
+          --output text 2>/dev/null || echo "STACK_NOT_FOUND")
+
+        echo "Current networking stack status: $STATUS"
+
+        if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "ROLLBACK_FAILED" ]; then
+          echo "Deleting failed networking stack $STACK_NAME so deployment can continue..."
+          aws cloudformation delete-stack \
+            --stack-name "$STACK_NAME" \
+            --region "${{ env.AWS_REGION }}"
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$STACK_NAME" \
+            --region "${{ env.AWS_REGION }}"
+
+          echo "Failed networking stack deleted successfully."
+        fi
+
     - name: Deploy Networking Stack
       id: deploy
       run: |
@@ -197,6 +221,30 @@ jobs:
         role-to-assume: ${{ env.ROLE_TO_ASSUME }}
         aws-region: ${{ env.AWS_REGION }}
         audience: sts.amazonaws.com
+
+    - name: Recover DB Stack If In Rollback Complete
+      run: |
+        STACK_NAME="${{ env.STACK_PREFIX }}-db"
+        STATUS=$(aws cloudformation describe-stacks \
+          --stack-name "$STACK_NAME" \
+          --region "${{ env.AWS_REGION }}" \
+          --query 'Stacks[0].StackStatus' \
+          --output text 2>/dev/null || echo "STACK_NOT_FOUND")
+
+        echo "Current DB stack status: $STATUS"
+
+        if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "ROLLBACK_FAILED" ]; then
+          echo "Deleting failed DB stack $STACK_NAME so deployment can continue..."
+          aws cloudformation delete-stack \
+            --stack-name "$STACK_NAME" \
+            --region "${{ env.AWS_REGION }}"
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$STACK_NAME" \
+            --region "${{ env.AWS_REGION }}"
+
+          echo "Failed DB stack deleted successfully."
+        fi
 
     - name: Deploy Database Stack
       id: deploy
