@@ -301,6 +301,30 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
         audience: sts.amazonaws.com
 
+    - name: Recover ECS Stack If In Rollback Complete
+      run: |
+        STACK_NAME="${{ env.STACK_PREFIX }}-ecs"
+        STATUS=$(aws cloudformation describe-stacks \
+          --stack-name "$STACK_NAME" \
+          --region "${{ env.AWS_REGION }}" \
+          --query 'Stacks[0].StackStatus' \
+          --output text 2>/dev/null || echo "STACK_NOT_FOUND")
+
+        echo "Current ECS stack status: $STATUS"
+
+        if [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "ROLLBACK_FAILED" ]; then
+          echo "Deleting failed ECS stack $STACK_NAME so deployment can continue..."
+          aws cloudformation delete-stack \
+            --stack-name "$STACK_NAME" \
+            --region "${{ env.AWS_REGION }}"
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$STACK_NAME" \
+            --region "${{ env.AWS_REGION }}"
+
+          echo "Failed ECS stack deleted successfully."
+        fi
+
     - name: Deploy ECS Stack
       id: deploy
       run: |
@@ -328,8 +352,7 @@ jobs:
             SecurityGroupId=${{ needs.deploy-networking.outputs.ecs-security-group }} \
             TaskExecutionRoleArn=$TASK_EXEC_ROLE \
             TaskRoleArn=$TASK_ROLE \
-            DatabaseEndpoint=${{ needs.deploy-database.outputs.db-endpoint }} \
-            DatabaseSecurityGroupId=${{ needs.deploy-networking.outputs.ecs-security-group }}
+            DatabaseEndpoint=${{ needs.deploy-database.outputs.db-endpoint }}
         
         STACK_ID=$(aws cloudformation describe-stacks \
           --stack-name ${{ env.STACK_PREFIX }}-ecs \
