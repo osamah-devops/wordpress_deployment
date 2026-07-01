@@ -110,7 +110,7 @@ Resources:
           Value: production
 
   # ==========================================
-  # RDS MYSQL INSTANCE
+  # RDS MYSQL INSTANCE (8.4)
   # ==========================================
   WordPressDatabase:
     Type: AWS::RDS::DBInstance
@@ -120,6 +120,7 @@ Resources:
       # Basic Configuration
       DBInstanceIdentifier: wordpress-db
       Engine: mysql
+      EngineVersion: "8.4"
       DBInstanceClass: !Ref DBInstanceClass
       AllocatedStorage: !Ref AllocatedStorage
       StorageType: gp3
@@ -191,14 +192,14 @@ Resources:
           Value: production
 
   # ==========================================
-  # DB PARAMETER GROUP (MySQL 8.0 Optimizations)
+  # DB PARAMETER GROUP (MySQL 8.4 Optimizations)
   # ==========================================
   WordPressDBParameterGroup:
     Type: AWS::RDS::DBParameterGroup
     Properties:
-      DBParameterGroupName: wordpress-mysql80-params
-      Description: "Optimized MySQL 8.0 parameters for WordPress"
-      Family: mysql8.0
+      DBParameterGroupName: wordpress-mysql84-params
+      Description: "Optimized MySQL 8.4 parameters for WordPress"
+      Family: mysql8.4
       Parameters:
         max_connections: 100
         slow_query_log: 1
@@ -220,10 +221,10 @@ Resources:
   WordPressDBOptionGroup:
     Type: AWS::RDS::OptionGroup
     Properties:
-      OptionGroupName: wordpress-mysql80-options
-      OptionGroupDescription: "Option group for WordPress MySQL 8.0"
+      OptionGroupName: wordpress-mysql84-options
+      OptionGroupDescription: "Option group for WordPress MySQL 8.4"
       EngineName: mysql
-      MajorEngineVersion: "8.0"
+      MajorEngineVersion: "8.4"
       Tags:
         - Key: Name
           Value: wordpress-db-options
