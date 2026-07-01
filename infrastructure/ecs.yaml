@@ -37,6 +37,11 @@ Parameters:
     Description: RDS database endpoint address
     Default: wordpress-db.123456789.us-east-1.rds.amazonaws.com
 
+  WordPressHostname:
+    Type: String
+    Description: Public hostname for WordPress
+    Default: marmil.co
+
 Resources:
   # ==========================================
   # ECS CLUSTER
@@ -134,11 +139,17 @@ Resources:
               Value: !Ref DatabaseEndpoint
             - Name: WORDPRESS_DATABASE_NAME
               Value: wordpress
+            - Name: WORDPRESS_USERNAME
+              Value: admin
+            - Name: WORDPRESS_HOSTNAME
+              Value: !Ref WordPressHostname
           Secrets:
             - Name: WORDPRESS_DATABASE_USER
               ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:wordpress-db-user:username::"
             - Name: WORDPRESS_DATABASE_PASSWORD
               ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:wordpress-db-password:password::"
+            - Name: WORDPRESS_PASSWORD
+              ValueFrom: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:wordpress-admin-password:password::"
 
   # ==========================================
   # ECS SERVICE
