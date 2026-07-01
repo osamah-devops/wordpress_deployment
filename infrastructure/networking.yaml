@@ -397,3 +397,11 @@ Outputs:
       Name: !Sub 
         - "${Stack}-allowed-sg-id"
         - Stack: !Ref AWS::StackName
+
+  LoadBalancerSecurityGroupId:
+    Description: "Security Group ID for the load balancer"
+    Value: !Ref LoadBalancerSecurityGroup
+    Export:
+      Name: !Sub
+        - "${Stack}-alb-sg-id"
+        - Stack: !Ref AWS::StackName

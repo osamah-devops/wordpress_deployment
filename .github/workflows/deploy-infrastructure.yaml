@@ -115,7 +115,10 @@ jobs:
       vpc-id: ${{ steps.exports.outputs.vpc-id }}
       private-subnet-1: ${{ steps.exports.outputs.private-subnet-1 }}
       private-subnet-2: ${{ steps.exports.outputs.private-subnet-2 }}
+      public-subnet-1: ${{ steps.exports.outputs.public-subnet-1 }}
+      public-subnet-2: ${{ steps.exports.outputs.public-subnet-2 }}
       ecs-security-group: ${{ steps.exports.outputs.ecs-security-group }}
+      alb-security-group: ${{ steps.exports.outputs.alb-security-group }}
     
     steps:
     - name: Checkout Code
@@ -196,6 +199,20 @@ jobs:
           --output text)
         echo "private-subnet-2=$PRIVATE_SUBNET_2" >> $GITHUB_OUTPUT
 
+        PUBLIC_SUBNET_1=$(aws cloudformation describe-stacks \
+          --stack-name "${{ env.STACK_PREFIX }}-networking" \
+          --region "${{ env.AWS_REGION }}" \
+          --query 'Stacks[0].Outputs[?OutputKey==`PublicSubnet1Id`].OutputValue' \
+          --output text)
+        echo "public-subnet-1=$PUBLIC_SUBNET_1" >> $GITHUB_OUTPUT
+
+        PUBLIC_SUBNET_2=$(aws cloudformation describe-stacks \
+          --stack-name "${{ env.STACK_PREFIX }}-networking" \
+          --region "${{ env.AWS_REGION }}" \
+          --query 'Stacks[0].Outputs[?OutputKey==`PublicSubnet2Id`].OutputValue' \
+          --output text)
+        echo "public-subnet-2=$PUBLIC_SUBNET_2" >> $GITHUB_OUTPUT
+
         ECS_SG=$(aws cloudformation describe-stack-resource \
           --stack-name "${{ env.STACK_PREFIX }}-networking" \
           --logical-resource-id EcsContainerSecurityGroup \
@@ -203,6 +220,14 @@ jobs:
           --query 'StackResourceDetail.PhysicalResourceId' \
           --output text)
         echo "ecs-security-group=$ECS_SG" >> $GITHUB_OUTPUT
+
+        ALB_SG=$(aws cloudformation describe-stack-resource \
+          --stack-name "${{ env.STACK_PREFIX }}-networking" \
+          --logical-resource-id LoadBalancerSecurityGroup \
+          --region "${{ env.AWS_REGION }}" \
+          --query 'StackResourceDetail.PhysicalResourceId' \
+          --output text)
+        echo "alb-security-group=$ALB_SG" >> $GITHUB_OUTPUT
 
   # ==========================================
   # DEPLOY DATABASE
@@ -409,6 +434,8 @@ jobs:
             VpcId=${{ needs.deploy-networking.outputs.vpc-id }} \
             SubnetIds='${{ needs.deploy-networking.outputs.private-subnet-1 }},${{ needs.deploy-networking.outputs.private-subnet-2 }}' \
             SecurityGroupId=${{ needs.deploy-networking.outputs.ecs-security-group }} \
+            LoadBalancerSubnetIds='${{ needs.deploy-networking.outputs.public-subnet-1 }},${{ needs.deploy-networking.outputs.public-subnet-2 }}' \
+            LoadBalancerSecurityGroupId=${{ needs.deploy-networking.outputs.alb-security-group }} \
             TaskExecutionRoleArn=$TASK_EXEC_ROLE \
             TaskRoleArn=$TASK_ROLE \
             DatabaseEndpoint=${{ needs.deploy-database.outputs.db-endpoint }} \

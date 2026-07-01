@@ -13,6 +13,14 @@ Parameters:
   SecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
     Description: Security group for ECS tasks
+
+  LoadBalancerSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Public subnet IDs for the internet-facing ALB
+
+  LoadBalancerSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group for ALB ingress/egress
   
   TaskExecutionRoleArn:
     Type: String
@@ -67,7 +75,9 @@ Resources:
     Properties:
       Type: application
       Scheme: internet-facing
-      Subnets: !Ref SubnetIds
+      Subnets: !Ref LoadBalancerSubnetIds
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroupId
       Tags:
         - Key: Name
           Value: wordpress-alb
