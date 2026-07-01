@@ -78,7 +78,7 @@ Resources:
           FromPort: 3306
           ToPort: 3306
           SourceSecurityGroupId: !ImportValue 
-            Fn::Sub: "${NetworkStackName}-ecs-sg-id"
+            Fn::Sub: "${NetworkStackName}-allowed-sg-id"
           Description: "MySQL from ECS containers"
       SecurityGroupEgress:
         - IpProtocol: -1
