@@ -395,7 +395,7 @@ Outputs:
         - Stack: !Ref AWS::StackName
   AllowedSecurityGroupId:
     Description: "Security Group ID for ECS containers"
-    Value: !Ref RDSSecurityGroup
+    Value: !Ref EcsContainerSecurityGroup
     Export: 
       Name: !Sub 
         - "${Stack}-allowed-sg-id"
