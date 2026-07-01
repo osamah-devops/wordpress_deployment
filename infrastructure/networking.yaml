@@ -187,22 +187,19 @@ Resources:
       Tags:
         - Key: Name
           Value: wordpress-private-rt-2
-    Condition: EnvironmentIsProduction
 
   PrivateRoute2:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PrivateRouteTable2
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway2
-    Condition: EnvironmentIsProduction
+      NatGatewayId: !If [EnvironmentIsProduction, !Ref NatGateway2, !Ref NatGateway1]
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable2
-    Condition: EnvironmentIsProduction
 
   # ==========================================
   # SECURITY GROUPS
