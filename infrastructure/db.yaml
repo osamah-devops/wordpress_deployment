@@ -115,11 +115,11 @@ Resources:
   WordPressDatabase:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
     Properties:
       # Basic Configuration
       DBInstanceIdentifier: wordpress-db
       Engine: mysql
-      EngineVersion: "8.0.35"
       DBInstanceClass: !Ref DBInstanceClass
       AllocatedStorage: !Ref AllocatedStorage
       StorageType: gp3
